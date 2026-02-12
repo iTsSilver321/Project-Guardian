@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+
+# Rust
+sniffer/target/
+sniffer/Cargo.lock
+
+# Project Guardian specific
+*.log
+*.db
+guardian_pids.json
+sniffer.exe
+sniffer.pdb
+
+# IDEs
+.idea/
+.vscode/
+*.swp
