@@ -16,6 +16,7 @@ sniffer/Cargo.lock
 guardian_pids.json
 sniffer.exe
 sniffer.pdb
+PRD.md
 
 # IDEs
 .idea/
