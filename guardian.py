@@ -52,12 +52,17 @@ def start(iface_index=None):
         print("   - Please restart your terminal as Administrator for full protection.")
     # 1. Start API
     print(" - Starting API Server (Brain)...")
+    api_log_path = os.path.join(ROOT_DIR, "api.log")
+    api_log = open(api_log_path, "a")
+    api_log.write(f"\n--- API Start: {time.ctime()} ---\n")
+    api_log.flush()
+    
     api_proc = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "server.api:app", "--host", "0.0.0.0", "--port", str(API_PORT)],
         cwd=ROOT_DIR,
         creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL
+        stdout=api_log,
+        stderr=api_log
     )
     pids['api'] = api_proc.pid
 

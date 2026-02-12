@@ -10,14 +10,18 @@ use std::io::{self, Write};
 use clap::Parser;
 use std::sync::mpsc;
 use std::thread;
-use std::time::Duration;
+use zmq;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    /// URL of the Central API Server
+    /// URL of the Central API Server (Fallback/Auth)
     #[arg(long, default_value = "http://localhost:8080")]
     server: String,
+
+    /// ZeroMQ Endpoint for high-speed blasting
+    #[arg(long, default_value = "tcp://127.0.0.1:5555")]
+    zmq_endpoint: String,
 
     /// Authentication Token
     #[arg(long, default_value = "SECRET_GUARDIAN_TOKEN")]
@@ -47,28 +51,28 @@ fn main() {
     // 1. Channel for async logging (Sniffer -> Sender Thread)
     let (tx, rx) = mpsc::channel::<PacketLog>();
 
-    // 2. Spawn Sender Thread
-    let server_url = args.server.clone();
-    let token = args.token.clone();
+    // 2. Spawn Sender Thread (ZeroMQ)
+    let zmq_endpoint = args.zmq_endpoint.clone();
     
     thread::spawn(move || {
-        let client = reqwest::blocking::Client::new();
-        let url = format!("{}/log/packet", server_url);
+        let context = zmq::Context::new();
+        let requester = context.socket(zmq::PUSH).unwrap();
+        println!("🚀 Blasting data to ZeroMQ: {}", zmq_endpoint);
+        
+        if let Err(e) = requester.connect(&zmq_endpoint) {
+            eprintln!("❌ Failed to connect to ZeroMQ: {}", e);
+            return;
+        }
 
         loop {
-            // Batching could improve performance, but for now send one by one
             if let Ok(log) = rx.recv() {
-                match client.post(&url)
-                    .header("Authorization", format!("Bearer {}", token))
-                    .json(&log)
-                    .send() {
-                        Ok(resp) => {
-                            if !resp.status().is_success() {
-                                eprintln!("API Error: {}", resp.status());
-                            }
-                        },
-                        Err(e) => eprintln!("Failed to send log: {}", e),
+                if let Ok(json_msg) = serde_json::to_string(&log) {
+                    if let Err(e) = requester.send(&json_msg, 0) {
+                        eprintln!("Failed to send log via ZMQ: {}", e);
+                    } else {
+                        // Success!
                     }
+                }
             }
         }
     });

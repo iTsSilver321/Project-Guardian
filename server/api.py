@@ -9,6 +9,9 @@ import databases
 import sqlalchemy
 import sys
 import os
+import threading
+import json
+import zmq
 
 # Enable importing from Analyzer
 # Ensure sys.path uses absolute path for the project root
@@ -112,6 +115,56 @@ async def startup():
 @app.on_event("shutdown")
 async def shutdown():
     await database.disconnect()
+
+# --- ZeroMQ Consumer ---
+ZMQ_ENDPOINT = "tcp://0.0.0.0:5555"
+
+def zmq_worker(main_loop):
+    """Background thread to receive logs via ZeroMQ."""
+    context = zmq.Context()
+    receiver = context.socket(zmq.PULL)
+    try:
+        receiver.bind(ZMQ_ENDPOINT)
+        print(f"ZeroMQ Pipe listening on {ZMQ_ENDPOINT}")
+    except Exception as e:
+        print(f"ZeroMQ Bind Error: {e}")
+        return
+
+    while True:
+        try:
+            message = receiver.recv_string()
+            data = json.loads(message)
+            packet = PacketLog(**data)
+            
+            # Use the main loop to handle the DB insertion and analysis
+            future = asyncio.run_coroutine_threadsafe(process_zmq_packet(packet), main_loop)
+            # We don't necessarily need to wait for the result here, 
+            # but we can for debugging.
+            future.result(timeout=5) 
+            
+        except Exception as e:
+            print(f"ZeroMQ Worker Loop Error: {e}")
+
+async def process_zmq_packet(packet: PacketLog):
+    # Log raw packet to DB
+    query = packets.insert().values(
+        time=time.time(),
+        src_ip=packet.src,
+        dst_ip=packet.dst,
+        dst_port=packet.dst_port,
+        protocol=packet.proto,
+        flags=packet.flags,
+        length=packet.len
+    )
+    await database.execute(query)
+    # Trigger analysis
+    await analyze_packet(packet)
+
+@app.on_event("startup")
+async def start_zmq():
+    loop = asyncio.get_running_loop()
+    thread = threading.Thread(target=zmq_worker, args=(loop,), daemon=True)
+    thread.start()
 
 async def analyze_packet(packet: PacketLog):
     """Run detections on the packet in background."""
